@@ -29,3 +29,17 @@ def inject_failures(G: nx.Graph, rate: float, switch_rate: float, scope: str,
     links = [(u, v) for u, v, cls in H.edges(data="cls") if cls in SCOPES[scope]]
     H.remove_edges_from(_choose(links, rate, rng))
     return H
+
+
+def link_equivalent(q: float) -> float:
+    """Expected fraction of dead switch-to-switch links when every agg/core switch fails with probability q.
+
+    An edge-agg link dies with probability q (its agg switch fails), an agg-core link with
+    1 - (1-q)^2 (either end fails). The two classes have k^3/4 links each, so the mean is (3q - q^2) / 2.
+    """
+    return (3 * q - q**2) / 2
+
+
+def switch_rate_for(p_eq: float) -> float:
+    """Inverse of link_equivalent: the switch failure probability q that kills a fraction p_eq of links."""
+    return (3 - np.sqrt(9 - 8 * p_eq)) / 2

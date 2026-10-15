@@ -1,9 +1,11 @@
 from collections import Counter
 
+import math
+
 import numpy as np
 import pytest
 
-from fattree.failures import inject_failures
+from fattree.failures import inject_failures, link_equivalent, switch_rate_for
 from fattree.topology import build_fat_tree
 
 K = 8
@@ -49,3 +51,11 @@ def test_same_seed_same_result():
 def test_failures_nested_across_rates(q):
     low, high = failed_links(fail(0.05, q=q)), failed_links(fail(0.1, q=q))
     assert low < high
+
+
+# Experiment 2's grid: p_eq values (Experiment 1's p) and the matching switch rates in configs/exp_2.yaml.
+@pytest.mark.parametrize("p, q", list(zip([0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3],
+                                          [0, 0.006682, 0.013393, 0.033712, 0.068218, 0.139853, 0.215477])))
+def test_link_equivalent_and_switch_rate_are_inverses(p, q):
+    assert math.isclose(switch_rate_for(link_equivalent(q)), q, abs_tol=1e-12)
+    assert math.isclose(link_equivalent(switch_rate_for(p)), p, abs_tol=1e-12)

@@ -1,0 +1,26 @@
+{
+  "config": "configs/exp_2.yaml",
+  "k": [
+    8,
+    16,
+    32,
+    48
+  ],
+  "fail_rate": [
+    0
+  ],
+  "fail_switches": [
+    0,
+    0.006682,
+    0.013393,
+    0.033712,
+    0.068218,
+    0.139853,
+    0.215477
+  ],
+  "fail_scope": "switch-links",
+  "pairs": "all",
+  "trials": 30,
+  "seed": 0,
+  "out": "results/Exp_2"
+}

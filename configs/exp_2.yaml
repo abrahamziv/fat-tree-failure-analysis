@@ -1,0 +1,10 @@
+# Experiment 2: switch failures at the same expected link loss as Experiment 1's link failures.
+# q = switch_rate_for(p_eq) for p_eq in Experiment 1's grid; link-failure runs are reused from results/Exp_1.
+k: [8, 16, 32, 48]
+fail_rate: [0]
+fail_switches: [0, 0.006682, 0.013393, 0.033712, 0.068218, 0.139853, 0.215477]
+fail_scope: switch-links
+pairs: all
+trials: 30
+seed: 0
+out: results/Exp_2

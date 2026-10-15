@@ -15,6 +15,8 @@ uv run pytest                # run all tests (topology, failures, metrics, CLI)
 uv run draw_topology.py --k 4                     # Figure 1 -> Resources/topology_k4.png
 uv run simulate.py --config configs/exp_1.yaml    # Experiment 1 (§5) -> results/Exp_1
 uv run plot_exp_1.py results/Exp_1/results.csv    # writes exp1_mean.png, exp1_worst.png next to the CSV
+uv run simulate.py --config configs/exp_2.yaml    # Experiment 2 (§5.2) -> results/Exp_2
+uv run plot_exp_2.py results/Exp_1/results.csv results/Exp_2/results.csv   # exp2_*.png
 ```
 
 **Single run example:** k=8, 5% link failures, 50 trials.
@@ -46,6 +48,7 @@ Inputs can be given on the command line or in a YAML config file (`--config`). K
   - `*_mean`: mean number of surviving shortest paths per pair (maximum k/2 intra-pod, (k/2)² inter-pod).
   - `*_min`: the worst pair's number of surviving paths.
 - `exp1_mean.png`, `exp1_worst.png`: Experiment 1 figures (§5), written next to the CSV by `plot_exp_1.py`.
+- `exp2_mean.png`, `exp2_worst.png`, `exp2_spread.png`: Experiment 2 figures (§5.2), written by `plot_exp_2.py`.
 
 ## 2. Background: the k-ary fat-tree ([1, §2.2])
 A k-ary fat-tree is built entirely from identical k-port switches arranged in three layers. It has k **pods**. Each pod contains k/2 **edge** switches and k/2 **aggregation** switches, fully connected to each other. Each edge switch serves k/2 hosts. On top sit (k/2)² **core** switches, arranged in a (k/2)×(k/2) grid. Core row i connects to aggregation switch i in every pod, so each core switch has exactly one port to each pod. Every switch uses all k ports.
@@ -89,6 +92,7 @@ A k-ary fat-tree is built entirely from identical k-port switches arranged in th
 | `fattree/metrics.py` | `surviving_paths(...)`: surviving shortest paths per edge-switch pair (§4.3). |
 | `simulate.py` | Experiment runner: parameter sweeps, trials, seeds; writes `results.csv` and `config.json`. |
 | `plot_exp_1.py` | Experiment 1 figures: mean ± 95% CI over trials for the average and the worst pair, with the analytic curves of §4.4.1. |
+| `plot_exp_2.py` | Experiment 2 figures (§5.2): link vs. switch failures on a common p_eq axis. |
 | `draw_topology.py` | Draws the topology (Figure 1), optionally with failures marked. |
 
 **Topology.** Nodes are named `e_{pod}_{i}`, `a_{pod}_{i}`, `c_{j}_{i}` and `h_{pod}_{edge}_{id}`, and carry their layer, pod and IP address from [1, §3.2]. Each link records its class (host–edge, edge–aggregation, aggregation–core) and the port number at both ends. Ports 0…k/2−1 face down and k/2…k−1 face up. Aggregation switch i, port k/2+j connects to core c_{i,j}.
@@ -237,6 +241,59 @@ uv run plot_exp_1.py results/Exp_1/results.csv
 **Why this matters for AI factories.** Training jobs synchronize through collective operations (e.g. all-reduce), which complete only when the *slowest* participating flow does. A flow between a badly hit pair of racks has fewer live uplinks to spread its traffic over, so it becomes that straggler. The average path diversity, which is what a per-link analysis gives, looks comfortable at any scale. But a collective spanning thousands of hosts almost certainly includes the worst pair, so its speed is set by the minimum of Figure 3, not the mean of Figure 2. For such workloads, fat-tree resilience should be judged by its worst-case path diversity, and the edge uplinks are where it is lost.
 
 
+### 5.2 Experiment 2: link failures vs. switch failures
+
+#### Question
+A failed switch takes all k of its links down at once. For the same expected number of dead links, do such concentrated failures hurt path diversity more or less than scattered link failures, on average and for the worst pair?
+
+#### Setup
+To compare the two failure types fairly, we match them on the **expected fraction of dead switch-to-switch links**. When every aggregation and core switch fails with probability $q$ (and $r = 1-q$):
+- an edge–aggregation link dies when its aggregation switch fails: probability $q$;
+- an aggregation–core link dies when either end fails: probability $1 - r^2 = 2q - q^2$.
+
+Both classes have $k^3/4$ links, so the expected dead fraction is
+
+$$p_{\text{eq}}(q) = \frac{3q - q^2}{2}, \qquad q(p_{\text{eq}}) = \frac{3 - \sqrt{9 - 8p_{\text{eq}}}}{2}$$
+
+Switch failure rate $q$ thus kills, on average, as many links as link failure rate $p = p_{\text{eq}}(q)$. We choose $q$ so that $p_{\text{eq}}$ hits Experiment 1's grid exactly, and reuse Experiment 1's link-failure runs for the comparison. By §4.4.2 the expected surviving fractions under switch failures are $r$ (intra-pod) and $r^3$ (inter-pod), against $s^2$ and $s^4$ under link failures.
+
+| Parameter | Value |
+|---|---|
+| Switch size k | 8, 16, 32, 48 (figures: k = 48) |
+| $p_{\text{eq}}$ | 0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3 |
+| Switch failure probability q | 0, 0.0067, 0.0134, 0.0337, 0.0682, 0.1399, 0.2155 |
+| Link failure probability p | 0 (switch runs); link runs from Experiment 1 |
+| Failure scope, pairs, trials | as in Experiment 1 |
+
+```bash
+uv run simulate.py --config configs/exp_2.yaml
+uv run plot_exp_2.py results/Exp_1/results.csv results/Exp_2/results.csv
+```
+
+#### Results
+
+![Experiment 2: mean surviving fraction](results/Exp_2/exp2_mean.png)
+
+*Figure 4: Mean surviving fraction vs. $p_{\text{eq}}$, link vs. switch failures, k = 48. Dashed: analytic ($s^2, s^4$ for links; $r, r^3$ for switches).*
+
+![Experiment 2: worst-pair fraction](results/Exp_2/exp2_worst.png)
+
+*Figure 5: Worst-pair surviving fraction vs. $p_{\text{eq}}$, k = 48.*
+
+![Experiment 2: trial-to-trial spread](results/Exp_2/exp2_spread.png)
+
+*Figure 6: Trial-to-trial standard deviation of the mean surviving fraction vs. $p_{\text{eq}}$, k = 48.*
+
+| k = 48, $p_{\text{eq}}$ = 0.1 | link failures | switch failures |
+|---|---|---|
+| mean, intra-pod | 0.809 | 0.931 |
+| mean, inter-pod | 0.655 | 0.808 |
+| worst pair, intra-pod | 0.465 | 0.794 |
+| worst pair, inter-pod | 0.313 | 0.584 |
+| trial-to-trial std, inter-pod mean | 0.004 | 0.016 |
+
+#### Discussion
+TODO
 
 ## References
 [1] M. Al-Fares, A. Loukissas, and A. Vahdat, "A scalable, commodity data center network architecture," *SIGCOMM Comput. Commun. Rev.*, vol. 38, no. 4, pp. 63–74, Oct. 2008. doi: [10.1145/1402946.1402967](https://doi.org/10.1145/1402946.1402967)
