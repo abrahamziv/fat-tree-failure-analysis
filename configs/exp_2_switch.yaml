@@ -1,0 +1,9 @@
+# Experiment 2, switch failures: as configs/exp_2.yaml, with aggregation/core switch failures instead of link failures.
+k: [8, 16, 32, 48]
+fail_rate: [0]
+fail_switches: [0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3]
+fail_scope: switch-links
+pairs: all
+trials: 30
+seed: 0
+out: results/Exp_2_switch

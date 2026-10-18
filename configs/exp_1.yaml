@@ -1,4 +1,4 @@
-# Experiment 1: surviving shortest paths vs. link failure probability (README_1.md, Experiments).
+# Experiment 1: surviving shortest paths vs. link failure probability (README §5.1).
 k: [8, 16, 32, 48]
 fail_rate: [0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3]
 fail_switches: [0]

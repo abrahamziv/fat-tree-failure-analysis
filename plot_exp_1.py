@@ -33,9 +33,9 @@ def normalize(df):
                      inter_mean=df.inter_mean / half**2, inter_min=df.inter_min / half**2)
 
 
-def summarize(df, col):
-    """Mean and 95% CI half-width over trials, per (k, p)."""
-    g = df.groupby(["k", "fail_rate"])[col]
+def summarize(df, col, x="fail_rate"):
+    """Mean and 95% CI half-width over trials, per (k, x)."""
+    g = df.groupby(["k", x])[col]
     return pd.DataFrame({"mean": g.mean(), "ci": stats.t.ppf(0.975, g.count() - 1) * g.sem()})
 
 
