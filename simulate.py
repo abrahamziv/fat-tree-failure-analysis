@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 
 from fattree.failures import inject_failures
-from fattree.metrics import delivery, surviving_paths
+from fattree.metrics import live_ports, surviving_paths
 from fattree.topology import build_fat_tree
 
 # Swept parameters, each given as a list of values. To add one: add its name here and its argument below.
@@ -21,7 +21,7 @@ SWEEP = ["k", "fail_rate", "fail_switches"]
 def run_trial(G, cfg, rng) -> dict:
     """One failure sample and its metrics. To add a metric: merge its dict into the result."""
     H = inject_failures(G, cfg.fail_rate, cfg.fail_switches, cfg.fail_scope, rng)
-    return {**surviving_paths(H, cfg.fail_scope, cfg.pairs, rng), **delivery(H, cfg.fail_scope, cfg.pairs, rng)}
+    return {**surviving_paths(H, cfg.fail_scope, cfg.pairs, rng), **live_ports(H)}
 
 
 def parse_args(argv=None) -> argparse.Namespace:

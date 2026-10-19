@@ -1,9 +1,10 @@
-"""Experiment 1 plots: surviving shortest paths vs. link failure probability, mean over trials with a 95% CI band.
+"""Experiment 1 plots vs. link failure probability, mean over trials with a 95% CI band.
 
 Usage: uv run plot_exp_1.py results/Exp_1/results.csv
 Writes next to the CSV:
-    exp1_mean.png   average pair, analytic curves dashed
-    exp1_worst.png  worst pair, average-pair analytic curves dashed gray for reference
+    exp1_mean.png   average pair's surviving shortest paths, analytic curves dashed
+    exp1_worst.png  worst pair's surviving shortest paths, average-pair analytic curves dashed gray for reference
+    exp1_ports.png  worst switch's live ports per layer, analytic E[min] dashed, mean switch dashed gray
 """
 
 import sys
@@ -14,16 +15,20 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from fattree.metrics import expected_worst_ports, port_layers
+
 K_COLORS = ["#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]  # ordinal blue ramp: small k light, large k dark
 INK, MUTED, GRID, REFERENCE = "#0b0b0b", "#52514e", "#e4e3df", "#8c8b87"
 CLASSES = [("intra", "Same pod"), ("inter", "Different pods")]
-# Expected surviving fraction of shortest paths under independent link failures (README §4.4.1).
+# Expected surviving fraction of shortest paths under independent link failures (README §4.4).
 ANALYTIC = {"intra": ("(1-p)²", lambda p: (1 - p) ** 2), "inter": ("(1-p)⁴", lambda p: (1 - p) ** 4)}
 # One figure per statistic over pairs: column suffix -> (file name, y-axis label).
 FIGURES = {
     "mean": ("exp1_mean.png", "mean surviving shortest paths / maximum"),
     "min": ("exp1_worst.png", "worst pair's surviving shortest paths / maximum"),
 }
+LAYERS = [("edge", "Edge switches: k/2 uplinks"), ("agg", "Aggregation switches: k ports"),
+          ("core", "Core switches: k ports")]
 
 
 def normalize(df):
@@ -72,6 +77,28 @@ def plot(df, stat, out):
     fig.savefig(out / name, dpi=150)
 
 
+def plot_ports(df, out):
+    """Worst switch's live switch-to-switch ports / ports per switch, one panel per layer."""
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=True, layout="constrained")
+    p_fine = np.linspace(0, df.fail_rate.max(), 100)
+    k_colors = dict(zip(sorted(df.k.unique()), K_COLORS))
+    for ax, (layer, title) in zip(axes, LAYERS):
+        for k, color in k_colors.items():
+            n = port_layers(k)[layer][1]
+            d = df[df.k == k]
+            s = summarize(d.assign(frac=d[f"{layer}_ports_min"] / n), "frac").loc[k]
+            ax.plot(s.index, s["mean"], "o-", color=color, lw=2, ms=4, label=f"k = {k}")
+            ax.fill_between(s.index, s["mean"] - s["ci"], s["mean"] + s["ci"], color=color, alpha=0.2, lw=0)
+            ax.plot(p_fine, expected_worst_ports(k, p_fine)[layer] / n, "--", color=color, lw=1)
+        ax.plot([], [], "--", color=INK, lw=1, label="worst switch (analytic)")  # legend proxy for the k lines
+        ax.plot(p_fine, 1 - p_fine, "--", color=REFERENCE, lw=1, zorder=1.5, label="average switch: 1-p")
+        style(ax, title)
+    axes[0].set_ylabel("worst switch's live ports / ports", color=MUTED)
+    axes[0].set_ylim(0, 1.02)
+    fig.legend(*axes[-1].get_legend_handles_labels(), loc="outside right center", frameon=False)
+    fig.savefig(out / "exp1_ports.png", dpi=150)
+
+
 def main(csv):
     df = pd.read_csv(csv)
     assert (df.fail_switches == 0).all(), "Experiment 1 is link failures only (fail_switches = 0)"
@@ -79,6 +106,7 @@ def main(csv):
     df = normalize(df)
     for stat in FIGURES:
         plot(df, stat, Path(csv).parent)
+    plot_ports(df, Path(csv).parent)
 
 
 if __name__ == "__main__":

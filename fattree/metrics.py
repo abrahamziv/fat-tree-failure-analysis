@@ -6,12 +6,13 @@ only through aggregation switch a of each pod.
 
 surviving_paths: per pair class (intra-pod, inter-pod), the mean and the minimum number of
 surviving shortest paths over the pairs.
-delivery: per pair class and routing scheme, the mean and the minimum delivery probability
-of a new flow over the flows (README §4.4.5).
+live_ports: per switch layer, the mean and the minimum number of live switch-to-switch ports
+over the surviving switches; expected_worst_ports: the expected minimum (README §4.5).
 """
 
 import networkx as nx
 import numpy as np
+from scipy.stats import binom
 
 
 def _pairs(n: int, g: int, n_pairs, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
@@ -79,74 +80,42 @@ def surviving_paths(H: nx.Graph, scope: str, n_pairs, rng: np.random.Generator) 
     return _summarize({"": paths}, same_pod)
 
 
-def static_route(k: int, e1, h):
-    """Algorithm 1 of [1]: the static path from edge switch e1 to destination host ID h (2..k/2+1).
 
-    Returns (a, c): aggregation switch a_{x1}_{a}, and for inter-pod traffic core c_{a+1}_{c+1}.
-    Edge switches use the aggregation switches' suffix table ([1, §3.5]: they only omit the /24
-    prefixes), so position z = e1 goes up to port (h-2+z) mod k/2 + k/2, i.e. agg a. Agg a sits at
-    position z = k/2 + a and goes up to (h-2+k/2+a) mod k/2 = (h-2+a) mod k/2.
-    """
+def port_layers(k: int) -> dict[str, tuple[int, int]]:
+    """{layer: (switches N, switch-to-switch ports per switch n)}."""
     half = k // 2
-    a = (h - 2 + e1) % half
-    return a, (h - 2 + a) % half
+    return {"edge": (k * half, half), "agg": (k * half, k), "core": (half**2, k)}
 
 
-def _flow_delivery(H: nx.Graph, n_pairs, rng: np.random.Generator):
-    """Per-flow delivery probability of each scheme, between edge switches (switch-links scope).
+def live_ports(H: nx.Graph) -> dict[str, float]:
+    """{layer}_ports_mean and {layer}_ports_min: live switch-to-switch ports over the surviving switches.
 
-    Returns (src, dst, same_pod, {scheme: per-flow probability}); src and dst index edge switches
-    as pod * k/2 + edge. Both directions of every pair are separate flows.
+    Edge: uplinks (host ports never count). Agg: uplinks + downlinks. Core: downlinks.
     """
     k = H.graph["k"]
     half = k // 2
-    up, core, shared = _liveness(H)
-
-    i, j = _pairs(k * half, 1, n_pairs, rng)
-    src, dst = np.concatenate([i, j]), np.concatenate([j, i])
-    x1, e1 = np.divmod(src, half)
-    x2, e2 = np.divmod(dst, half)
-    same_pod = x1 == x2
-    up1, up2 = up[x1, e1], up[x2, e2]
-    # good[:, a]: once at aggregation switch a, the flow can still reach e2 on a shortest path.
-    good = up2 * np.where(same_pod[:, None], 1, shared[x1, x2] > 0)
-
-    # Static (§3.5): one path per destination host ID; delivered iff all its links are alive.
-    static = np.zeros(len(src))
-    for h in range(2, half + 2):
-        a, c = static_route(k, e1, h)
-        hop = np.where(same_pod, 1, core[x1, a, c] * core[x2, a, c])
-        static += up[x1, e1, a] * hop * up[x2, e2, a]
-    static /= half
-
-    # Ideal: at least one shortest path survives.
-    ideal = (up1 * good).any(axis=1).astype(float)
-
-    # §3.8: intra-pod, the edge switch sees every tag of its pod, so it delivers iff ideal does.
-    # Inter-pod, it knows only its own uplinks: a uniform live uplink, then success iff that agg is good.
-    n_up = up1.sum(axis=1)
-    ft = np.where(same_pod, ideal, (up1 * good).sum(axis=1) / np.maximum(n_up, 1))
-    return src, dst, same_pod, {"static": static, "ft": ft, "ideal": ideal}
-
-
-def delivery(H: nx.Graph, scope: str, n_pairs, rng: np.random.Generator) -> dict[str, float]:
-    """Delivery ratio of new flows per scheme. Only defined between edge switches: empty under all-links."""
-    if scope != "switch-links":
-        return {}
-    _, _, same_pod, schemes = _flow_delivery(H, n_pairs, rng)
-    return _summarize(schemes, same_pod)
-
-
-def expected_delivery(k: int, p=0.0, q=0.0) -> dict:
-    """Expected per-flow delivery probability under independent failures (README §4.4.5)."""
-    half = k // 2
-    s, r = 1 - p, 1 - q
-    row = 1 - (1 - r * s**2) ** half  # at least one core of a row with both its links alive
-    return {
-        "intra_static": r * s**2,
-        "inter_static": r**3 * s**4,
-        "intra_ideal": 1 - (1 - r * s**2) ** half,
-        "inter_ideal": 1 - (1 - r**2 * s**2 * row) ** half,
-        "intra_ft": 1 - (1 - r * s**2) ** half,
-        "inter_ft": r * s * row * (1 - (1 - r * s) ** half),
+    up, core, _ = _liveness(H)
+    agg_alive = np.array([[H.has_node(f"a_{x}_{a}") for a in range(half)] for x in range(k)], dtype=bool)
+    core_alive = np.array([[H.has_node(f"c_{a + 1}_{c + 1}") for c in range(half)] for a in range(half)],
+                          dtype=bool)
+    ports = {
+        "edge": up.sum(axis=2).ravel(),  # edge switches never fail
+        "agg": (up.sum(axis=1) + core.sum(axis=2))[agg_alive],
+        "core": core.sum(axis=0)[core_alive],
     }
+    out = {}
+    for layer, v in ports.items():
+        if v.size:  # switch failures can empty a layer
+            out[f"{layer}_ports_mean"] = v.mean()
+            out[f"{layer}_ports_min"] = v.min()
+    return out
+
+
+def expected_worst_ports(k: int, p: float) -> dict[str, float]:
+    """E[min live ports] per layer under independent link failures only (README §4.5); p may be an array.
+
+    A switch keeps L ~ Bin(n, 1-p) ports, independently of the other switches of its layer (they share
+    no switch-to-switch link), so P(min >= m) = P(L >= m)^N and E[min] = sum_{m=1..n} P(L >= m)^N.
+    """
+    return {layer: sum(binom.sf(m - 1, n, 1 - p) ** N for m in range(1, n + 1))
+            for layer, (N, n) in port_layers(k).items()}

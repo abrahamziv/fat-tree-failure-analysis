@@ -30,5 +30,5 @@ def test_end_to_end(config, tmp_path):
     df = pd.read_csv(tmp_path / "out" / "results.csv")
     assert len(df) == 2 * 3
     assert {"k", "fail_rate", "fail_switches", "trial", "inter_mean", "intra_min",
-            "intra_static_mean", "inter_ft_mean", "inter_ideal_min"} <= set(df.columns)
+            "edge_ports_min", "agg_ports_mean", "core_ports_min"} <= set(df.columns)
     assert (tmp_path / "out" / "config.json").exists()

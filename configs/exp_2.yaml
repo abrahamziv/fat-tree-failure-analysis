@@ -1,9 +1,0 @@
-# Experiment 2: delivery ratio of new flows under link failures, static routing vs. the §3.8 fault-tolerance scheme (README §5.2).
-k: [8, 16, 32, 48]
-fail_rate: [0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3]
-fail_switches: [0]
-fail_scope: switch-links
-pairs: all
-trials: 30
-seed: 0
-out: results/Exp_2
