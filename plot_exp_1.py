@@ -5,11 +5,13 @@ Writes next to the CSV:
     exp1_mean.png   average pair's surviving shortest paths, analytic curves dashed
     exp1_worst.png  worst pair's surviving shortest paths, average-pair analytic curves dashed gray for reference
     exp1_ports.png  worst switch's live ports per layer, analytic E[min] dashed, mean switch dashed gray
+At most 4 k values per CSV (one color each).
 """
 
 import sys
 from pathlib import Path
 
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -24,8 +26,8 @@ CLASSES = [("intra", "Same pod"), ("inter", "Different pods")]
 ANALYTIC = {"intra": ("(1-p)²", lambda p: (1 - p) ** 2), "inter": ("(1-p)⁴", lambda p: (1 - p) ** 4)}
 # One figure per statistic over pairs: column suffix -> (file name, y-axis label).
 FIGURES = {
-    "mean": ("exp1_mean.png", "mean surviving shortest paths / maximum"),
-    "min": ("exp1_worst.png", "worst pair's surviving shortest paths / maximum"),
+    "mean": ("exp1_mean.png", "fraction of shortest paths surviving (mean pair)"),
+    "min": ("exp1_worst.png", "fraction of shortest paths surviving (worst pair)"),
 }
 LAYERS = [("edge", "Edge switches: k/2 uplinks"), ("agg", "Aggregation switches: k ports"),
           ("core", "Core switches: k ports")]
@@ -39,9 +41,9 @@ def normalize(df):
 
 
 def summarize(df, col, x="fail_rate"):
-    """Mean and 95% CI half-width over trials, per (k, x)."""
+    """Mean and 95% CI half-width over trials, per (k, x). A single trial has no CI (drawn as 0)."""
     g = df.groupby(["k", x])[col]
-    return pd.DataFrame({"mean": g.mean(), "ci": stats.t.ppf(0.975, g.count() - 1) * g.sem()})
+    return pd.DataFrame({"mean": g.mean(), "ci": (stats.t.ppf(0.975, g.count() - 1) * g.sem()).fillna(0)})
 
 
 def style(ax, title):
@@ -64,8 +66,9 @@ def plot(df, stat, out):
             s = summarize(df[df.k == k], f"{cls}_{stat}").loc[k]
             ax.plot(s.index, s["mean"], "o-", color=color, lw=2, ms=4, label=f"k = {k}")
             ax.fill_between(s.index, s["mean"] - s["ci"], s["mean"] + s["ci"], color=color, alpha=0.2, lw=0)
-        if stat == "mean":
-            ax.plot(p_fine, expected(p_fine), "--", color=INK, lw=1, label="analytic")
+        if stat == "mean":  # on top of the k curves it overlaps, with a white ring to stay visible
+            ax.plot(p_fine, expected(p_fine), "--", color=INK, lw=1.2, zorder=3, label="analytic",
+                    path_effects=[pe.withStroke(linewidth=3, foreground="white")])
             title += f": {formula} expected"
         else:  # reference only: below the k curves (lines are zorder 2), above the CI bands (zorder 1)
             ax.plot(p_fine, expected(p_fine), "--", color=REFERENCE, lw=1, zorder=1.5,
@@ -93,7 +96,7 @@ def plot_ports(df, out):
         ax.plot([], [], "--", color=INK, lw=1, label="worst switch (analytic)")  # legend proxy for the k lines
         ax.plot(p_fine, 1 - p_fine, "--", color=REFERENCE, lw=1, zorder=1.5, label="average switch: 1-p")
         style(ax, title)
-    axes[0].set_ylabel("worst switch's live ports / ports", color=MUTED)
+    axes[0].set_ylabel("worst switch's live-port fraction", color=MUTED)
     axes[0].set_ylim(0, 1.02)
     fig.legend(*axes[-1].get_legend_handles_labels(), loc="outside right center", frameon=False)
     fig.savefig(out / "exp1_ports.png", dpi=150)

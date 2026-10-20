@@ -15,11 +15,7 @@
     0.2,
     0.3
   ],
-  "fail_switches": [
-    0
-  ],
   "fail_scope": "switch-links",
-  "pairs": "all",
   "trials": 30,
   "seed": 0,
   "out": "results/Exp_1"

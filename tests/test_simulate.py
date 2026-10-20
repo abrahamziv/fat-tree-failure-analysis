@@ -25,6 +25,26 @@ def test_missing_k_is_an_error():
         parse_args([])
 
 
+def test_scalar_sweep_value_in_config(tmp_path):
+    path = tmp_path / "exp.yaml"
+    path.write_text("k: 4\nfail_rate: 0.1\n")
+    args = parse_args(["--config", str(path)])
+    assert args.k == [4] and args.fail_rate == [0.1]
+
+
+def test_unknown_config_key_is_an_error(tmp_path):
+    path = tmp_path / "exp.yaml"
+    path.write_text("k: [4]\nfail_switches: [0]\n")
+    with pytest.raises(SystemExit):
+        parse_args(["--config", str(path)])
+
+
+@pytest.mark.parametrize("argv", [["--fail-rate", "1.5"], ["--fail-rate", "-0.1"], ["--trials", "0"]])
+def test_invalid_values_are_an_error(argv):
+    with pytest.raises(SystemExit):
+        parse_args(["--k", "4", *argv])
+
+
 def test_end_to_end(config, tmp_path):
     main(["--config", config])
     df = pd.read_csv(tmp_path / "out" / "results.csv")

@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 
 from fattree.failures import inject_failures
-from fattree.metrics import live_ports, surviving_paths
+from fattree.metrics import live_ports, liveness, surviving_paths
 from fattree.topology import build_fat_tree
 
 # Swept parameters, each given as a list of values. To add one: add its name here and its argument below.
@@ -21,7 +21,8 @@ SWEEP = ["k", "fail_rate"]
 def run_trial(G, cfg, rng) -> dict:
     """One failure sample and its metrics. To add a metric: merge its dict into the result."""
     H = inject_failures(G, cfg.fail_rate, cfg.fail_scope, rng)
-    return {**surviving_paths(H, cfg.fail_scope, cfg.pairs, rng), **live_ports(H)}
+    live = liveness(H)  # shared by the metrics below
+    return {**surviving_paths(H, cfg.fail_scope, live), **live_ports(H, live)}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -31,8 +32,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--fail-rate", type=float, nargs="+", default=[0.0],
                    help="link failure probability p (each link fails independently)")
     p.add_argument("--fail-scope", choices=["switch-links", "all-links"], default="switch-links")
-    p.add_argument("--pairs", type=lambda s: s if s == "all" else int(s), default="all",
-                   help="'all' or the number of uniformly sampled pairs")
     p.add_argument("--trials", type=int, default=30)
     p.add_argument("--seed", type=int, default=0, help="trial t uses seed + t")
     p.add_argument("--out", default="results")
@@ -40,10 +39,21 @@ def parse_args(argv=None) -> argparse.Namespace:
     # First pass only reads --config, whose values become defaults so that CLI flags win.
     config = p.parse_known_args(argv)[0].config
     if config:
-        p.set_defaults(**yaml.safe_load(Path(config).read_text()))
+        values = yaml.safe_load(Path(config).read_text()) or {}
+        unknown = set(values) - set(vars(p.parse_args([])))
+        if unknown:
+            p.error(f"unknown keys in {config}: {', '.join(sorted(unknown))}")
+        for name in SWEEP:  # a single value may be given without a list
+            if name in values and not isinstance(values[name], list):
+                values[name] = [values[name]]
+        p.set_defaults(**values)
     args = p.parse_args(argv)
     if not args.k:
         p.error("--k is required, on the command line or in the config file")
+    if not all(0 <= r <= 1 for r in args.fail_rate):
+        p.error("--fail-rate values must be in [0, 1]")
+    if args.trials < 1:
+        p.error("--trials must be at least 1")
     return args
 
 

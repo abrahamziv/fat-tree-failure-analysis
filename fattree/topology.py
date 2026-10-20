@@ -2,8 +2,9 @@
 
 Port convention (every switch has ports 0..k-1; 0..k/2-1 point down, k/2..k-1 point up):
     edge i, pod x : port id-2  -> host h_x_i_id        port k/2+a -> agg a_x_a
-    agg a,  pod x : port i     -> edge e_x_i           port k/2+j -> core c_{a+1}_{j+1}
-    core (j, i)   : port x     -> agg a_x_{j-1} (one port per pod)
+    agg a,  pod x : port i     -> edge e_x_i           port k/2+c -> core c_{a+1}_{c+1}
+    core (r, c)   : port x     -> agg a_x_{r-1} (one port per pod)
+Core c_r_c is row r, column c (both 1-based) of the (k/2)^2 core grid, address 10.k.r.c (the paper's 10.k.j.i).
 """
 
 import networkx as nx
@@ -16,17 +17,17 @@ def build_fat_tree(k: int) -> nx.Graph:
     half = k // 2
     G = nx.Graph(k=k)
 
-    for j in range(1, half + 1):
-        for i in range(1, half + 1):
-            G.add_node(f"c_{j}_{i}", layer="core", pod=None, index=(j, i), ip=f"10.{k}.{j}.{i}")
+    for r in range(1, half + 1):
+        for c in range(1, half + 1):
+            G.add_node(f"c_{r}_{c}", layer="core", pod=None, index=(r, c), ip=f"10.{k}.{r}.{c}")
 
     for x in range(k):
         for a in range(half):
             agg = f"a_{x}_{a}"
             G.add_node(agg, layer="agg", pod=x, index=a, ip=f"10.{x}.{half + a}.1")
-            for j in range(half):
-                G.add_edge(agg, f"c_{a + 1}_{j + 1}", cls="agg-core",
-                           port={agg: half + j, f"c_{a + 1}_{j + 1}": x})
+            for c in range(half):
+                G.add_edge(agg, f"c_{a + 1}_{c + 1}", cls="agg-core",
+                           port={agg: half + c, f"c_{a + 1}_{c + 1}": x})
 
         for e in range(half):
             edge = f"e_{x}_{e}"

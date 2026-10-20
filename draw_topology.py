@@ -1,13 +1,18 @@
 """Draw a fat-tree (optionally with failures): uv run draw_topology.py --k 4 [--fail-rate 0.15 --seed 3]"""
+
 import argparse
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+
+from fattree.failures import SCOPES, inject_failures
 from fattree.topology import build_fat_tree
-from fattree.failures import inject_failures
 
 COLORS = {"core": "#c0504d", "agg": "#4f81bd", "edge": "#9bbb59", "host": "#7f7f7f"}
 Y = {"core": 3, "agg": 2, "edge": 1, "host": 0}
+MAX_K = 8  # the figure is as wide as the k^3/4 hosts; beyond k = 8 it is unreadable and too large to render
+
 
 def layout(G):
     h = G.graph["k"] // 2
@@ -20,11 +25,12 @@ def layout(G):
             x = f[0] * stride + f[1] * h + (f[2] - 2)
         elif d["layer"] in ("edge", "agg"):     # e_/a_{pod}_{i}
             x = f[0] * stride + f[1] * h + (h - 1) / 2
-        else:                                   # c_{j}_{i}, 1-based
+        else:                                   # c_{row}_{col}, 1-based
             idx = (f[0] - 1) * h + (f[1] - 1)
             x = (idx + 0.5) * width / (h * h) - 0.5
         pos[n] = (x, Y[d["layer"]])
     return pos
+
 
 def label_placement(G, pos, n):
     """Offset (points) and alignment that put an IP label where the node has no links."""
@@ -39,16 +45,20 @@ def label_placement(G, pos, n):
     dy, va = (8, "bottom") if layer == "edge" else (-8, "top")
     return (-6 if left else 6, dy), "right" if left else "left", va
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--k", type=int, default=4)
+    ap.add_argument("--k", type=int, default=4, help=f"ports per switch (even, 4..{MAX_K})")
     ap.add_argument("--fail-rate", type=float, default=0.0)
+    ap.add_argument("--fail-scope", choices=list(SCOPES), default="switch-links")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", help="default: Resources/topology_k{k}.png")
     a = ap.parse_args()
+    if a.k > MAX_K:
+        ap.error(f"--k must be at most {MAX_K} for drawing")
 
     G = build_fat_tree(a.k)
-    H = inject_failures(G, a.fail_rate, "switch-links", np.random.default_rng(a.seed))
+    H = inject_failures(G, a.fail_rate, a.fail_scope, np.random.default_rng(a.seed))
     pos = layout(G)
     alive = [e for e in G.edges if H.has_edge(*e)]
     dead = [e for e in G.edges if not H.has_edge(*e)]
@@ -71,6 +81,7 @@ def main():
     ax.axis("off")
     fig.tight_layout()
     fig.savefig(a.out or f"Resources/topology_k{a.k}.png", dpi=200)
+
 
 if __name__ == "__main__":
     main()
