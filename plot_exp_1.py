@@ -101,7 +101,6 @@ def plot_ports(df, out):
 
 def main(csv):
     df = pd.read_csv(csv)
-    assert (df.fail_switches == 0).all(), "Experiment 1 is link failures only (fail_switches = 0)"
     assert df.k.nunique() <= len(K_COLORS), f"at most {len(K_COLORS)} k values per plot"
     df = normalize(df)
     for stat in FIGURES:

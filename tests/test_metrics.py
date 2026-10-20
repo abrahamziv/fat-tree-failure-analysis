@@ -53,7 +53,7 @@ def test_matches_analytic_expectation():
     runs = []
     for t in range(trials):
         r = np.random.default_rng(t)
-        runs.append(surviving_paths(inject_failures(G, p, 0, "switch-links", r), "switch-links", "all", r))
+        runs.append(surviving_paths(inject_failures(G, p, "switch-links", r), "switch-links", "all", r))
 
     h, s = k // 2, (1 - p) ** 2  # s: both links of a 2-link segment alive
     expected = {"intra_mean": h * s, "inter_mean": h**2 * s**2}
@@ -89,20 +89,10 @@ def test_link_failure_lowers_its_two_switches():
     assert (m["core_ports_min"], m["core_ports_mean"]) == (3, (3 + 3 * 4) / 4)
 
 
-def test_failed_agg_switch_is_excluded():
-    """a_0_0 removed: it leaves the agg stats; e_0_0, e_0_1, c_1_1 and c_1_2 each lose one port."""
-    G = build_fat_tree(4)
-    G.remove_node("a_0_0")
-    m = live_ports(G)
-    assert (m["agg_ports_min"], m["agg_ports_mean"]) == (4, 4)
-    assert (m["edge_ports_min"], m["edge_ports_mean"]) == (1, (2 * 1 + 6 * 2) / 8)
-    assert (m["core_ports_min"], m["core_ports_mean"]) == (3, (2 * 3 + 2 * 4) / 4)
-
-
 @functools.cache
 def port_runs(k, p, trials):
     G = build_fat_tree(k)
-    return [live_ports(inject_failures(G, p, 0, "switch-links", np.random.default_rng(t))) for t in range(trials)]
+    return [live_ports(inject_failures(G, p, "switch-links", np.random.default_rng(t))) for t in range(trials)]
 
 
 def assert_matches(runs, expected):

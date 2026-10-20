@@ -30,7 +30,6 @@ Inputs can be given on the command line or in a YAML config file (`--config`). K
 |---|---|---|
 | `--k` *(sweep)* | required | Ports per switch. Even, 4 ≤ k ≤ 254 (one-byte addressing of [1, §3.2]). |
 | `--fail-rate` *(sweep)* | `0` | Link failure rate p ∈ [0, 1] |
-| `--fail-switches` *(sweep)* | `0` | Switch failure rate q ∈ [0, 1], aggregation and core switches only (§4.1). |
 | `--fail-scope` | `switch-links` | `switch-links` (switch-to-switch links only) or `all-links` (host–edge links too). See §4.1. |
 | `--pairs` | `all` | `all`, or `N` uniformly sampled pairs (for large k). See §4.3. |
 | `--trials` | `30` | Independent failure samples for each parameter combination. Plots show the mean ± 95% CI over trials. |
@@ -41,9 +40,9 @@ Inputs can be given on the command line or in a YAML config file (`--config`). K
 ### Outputs (`--out DIR`)
 
 - `config.json`: the exact parameters used, after combining the command line and the config file.
-- `results.csv`: one row per (k, p, q, trial). Statistics end with `_mean` (the mean) or `_min` (the worst).
+- `results.csv`: one row per (k, p, trial). Statistics end with `_mean` (the mean) or `_min` (the worst).
   - `intra_*`, `inter_*`: surviving shortest paths per pair, for pairs in the same pod or in different pods (§4.3).
-  - `{layer}_ports_*`, layer ∈ {`edge`, `agg`, `core`}: live switch-to-switch ports per surviving switch (§4.5).
+  - `{layer}_ports_*`, layer ∈ {`edge`, `agg`, `core`}: live switch-to-switch ports per switch (§4.5).
 - `plot_exp_1.py` writes the figures (`exp1_mean.png`, `exp1_worst.png`, `exp1_ports.png`) next to the CSV.
 
 ## 2. Topology
@@ -74,12 +73,10 @@ This is vectorized over all pairs with NumPy. The live-port metric (§4.5) sums 
 ## 4. Failure Modeling
 ### 4.1 What can fail
 - **Links** (`--fail-rate p`). By default (`--fail-scope switch-links`), only switch-to-switch links can fail: edge–aggregation and aggregation–core, k³/2 links in total. These are the two failure classes the paper's fault-tolerance scheme can route around ([1, §3.8]). Host–edge links are excluded by default: a host has a single uplink, so losing it disconnects the host whatever the fabric does. `--fail-scope all-links` adds them, and that only adds loss no routing can recover.
-- **Switches** (`--fail-switches q`). A failed switch is removed together with all of its links, matching [1, §3.8] ("switch failures trigger the same BFD alerts and elicit the same responses"). Only aggregation and core switches are eligible. A failed edge switch disconnects its hosts, which is the same argument as for host links.
-- **Order:** switch failures are applied first, then link failures on the in-scope links that remain.
 ### 4.2 How failures are sampled
-Failures are independent Bernoulli trials: every eligible link fails with probability p, and every eligible switch with probability q, independently of all other elements. The failure percentage from the assignment is therefore read as a per-element failure probability.
+Failures are independent Bernoulli trials: every eligible link fails with probability p, independently of all other links. The failure percentage from the assignment is therefore read as a per-element failure probability.
 
-**Seeds and nesting.** Trial t uses seed `seed + t`. Each element gets one uniform draw u and fails if u < p (or q). The draws don't depend on the rate, so for a fixed seed the failure sets are nested: everything that fails at p = 0.05 also fails at p = 0.1. All rates are compared on the same random draws (common random numbers), which keeps the curves smooth and monotone. Switch draws come before link draws, so nesting in p holds for each fixed q.
+**Seeds and nesting.** Trial t uses seed `seed + t`. Each element gets one uniform draw u and fails if u < p. The draws don't depend on the rate, so for a fixed seed the failure sets are nested: everything that fails at p = 0.05 also fails at p = 0.1. All rates are compared on the same random draws (common random numbers), which keeps the curves smooth and monotone.
 ### 4.3 What counts as a surviving path
 We count **shortest (equal-cost) paths** between pairs of edge switches. Under `switch-links` scope, every host under an edge switch sees the same paths, so edge switches are the exact endpoints. Pairs under the same edge switch are excluded, because their traffic never enters the fabric. Because of the fat-tree structure, every shortest path is fixed by a small choice:
 - **Same pod:** e₁ → aggregation switch aᵢ → e₂. There are k/2 paths in total, one per i ∈ {1,…,k/2}.
@@ -87,22 +84,22 @@ We count **shortest (equal-cost) paths** between pairs of edge switches. Under `
 
 A path **survives** if all of its links and switches are alive.
 ### 4.4 Expected surviving paths
-We derive the expected number of surviving shortest paths between a pair of edge switches. All failures are independent (§4.2). Let $s = 1-p$ be the probability that a link survives, and $r = 1-q$ the probability that a switch survives. A link is usable only if the link itself survives **and** both of its endpoint switches survive. (Applying link failures only to links that survived the switch failures, as the simulator does, gives the same result, since a link attached to a dead switch is dead either way.)
+We derive the expected number of surviving shortest paths between a pair of edge switches. All failures are independent (§4.2). Let $s = 1-p$ be the probability that a link survives.
 
-**Intra-pod pairs.** Path $e_1 \leftrightarrow a_i \leftrightarrow e_2$ (§4.3) needs one switch ($a_i$) and two links to survive. These are independent events, so its indicator is $B_i \sim \mathrm{Ber}(r s^2)$. Different paths use disjoint switches and links, so the $B_i$ are **independent**, and the number of surviving paths $X = \sum_{i=1}^{k/2} B_i \sim \mathrm{Bin}(k/2,\, r s^2)$:
+**Intra-pod pairs.** Path $e_1 \leftrightarrow a_i \leftrightarrow e_2$ (§4.3) needs its two links to survive. These are independent events, so its indicator is $B_i \sim \mathrm{Ber}(s^2)$. Different paths use disjoint links, so the $B_i$ are **independent**, and the number of surviving paths $X = \sum_{i=1}^{k/2} B_i \sim \mathrm{Bin}(k/2,\, s^2)$:
 
-$$\mathbb{E}[X_{\text{intra}}] = \frac{k}{2}\, r s^2$$
+$$\mathbb{E}[X_{\text{intra}}] = \frac{k}{2}\, s^2$$
 
-**Inter-pod pairs.** Path $(i,j)$ is $e_1 \leftrightarrow a_i^{(1)} \leftrightarrow c_{i,j} \leftrightarrow a_i^{(2)} \leftrightarrow e_2$ (§4.3), where $a_i^{(1)}$ and $a_i^{(2)}$ are the $i$-th aggregation switches of the two pods and $c_{i,j}$ is the $j$-th core switch of row $i$. It needs three switches and four links to survive, so $B_{i,j} \sim \mathrm{Ber}(r^3 s^4)$. Unlike the intra-pod case, the $B_{i,j}$ are **not independent**: the $k/2$ paths of row $i$ share both aggregation switches and both edge–aggregation links, so if one of those fails, all $k/2$ paths of row $i$ fail together. $X = \sum_{i=1}^{k/2}\sum_{j=1}^{k/2} B_{i,j}$ is therefore not binomial. Linearity of expectation does not require independence, however, so
+**Inter-pod pairs.** Path $(i,j)$ is $e_1 \leftrightarrow a_i^{(1)} \leftrightarrow c_{i,j} \leftrightarrow a_i^{(2)} \leftrightarrow e_2$ (§4.3), where $a_i^{(1)}$ and $a_i^{(2)}$ are the $i$-th aggregation switches of the two pods and $c_{i,j}$ is the $j$-th core switch of row $i$. It needs its four links to survive, so $B_{i,j} \sim \mathrm{Ber}(s^4)$. Unlike the intra-pod case, the $B_{i,j}$ are **not independent**: the $k/2$ paths of row $i$ share both edge–aggregation links, $e_1 \leftrightarrow a_i^{(1)}$ and $a_i^{(2)} \leftrightarrow e_2$, so if one of those fails, all $k/2$ paths of row $i$ fail together. $X = \sum_{i=1}^{k/2}\sum_{j=1}^{k/2} B_{i,j}$ is therefore not binomial. Linearity of expectation does not require independence, however, so
 
-$$\mathbb{E}[X_{\text{inter}}] = \sum_{i=1}^{k/2}\sum_{j=1}^{k/2} \mathbb{E}[B_{i,j}] = \left(\frac{k}{2}\right)^2 r^3 s^4$$
+$$\mathbb{E}[X_{\text{inter}}] = \sum_{i=1}^{k/2}\sum_{j=1}^{k/2} \mathbb{E}[B_{i,j}] = \left(\frac{k}{2}\right)^2 s^4$$
 
-Normalized by the number of paths in the healthy network ($k/2$ and $(k/2)^2$), the expected fraction of surviving paths is $r s^2$ intra-pod and $r^3 s^4$ inter-pod, independent of $k$. With $q = 0$ (Experiment 1) they are $s^2$ and $s^4$.
+Normalized by the number of paths in the healthy network ($k/2$ and $(k/2)^2$), the expected fraction of surviving paths is $s^2$ intra-pod and $s^4$ inter-pod, independent of $k$.
 
 These are per-pair expectations: by linearity they hold however failures are correlated across pairs, but they say nothing about how the damage is distributed. The worst pair (`*_min`) and the trial-to-trial spread depend on the joint failure pattern and have no simple closed form, so the simulation measures them and uses the expectations above to validate itself.
 
 ### 4.5 Live ports per switch
-For every surviving switch we count its live switch-to-switch ports: an edge switch's uplinks ($n = k/2$; host ports never count), an aggregation switch's uplinks and downlinks ($n = k$), and a core switch's downlinks ($n = k$). We consider link failures only ($q = 0$), with $s = 1-p$.
+For every switch we count its live switch-to-switch ports: an edge switch's uplinks ($n = k/2$; host ports never count), an aggregation switch's uplinks and downlinks ($n = k$), and a core switch's downlinks ($n = k$). Let $s = 1-p$.
 
 A switch keeps $L \sim \mathrm{Bin}(n, s)$ of its $n$ ports, so the mean live fraction is $s$ in every layer. Within a layer, switches share no switch-to-switch link (each such link joins two different layers), so their $L$'s are independent. For a layer of $N$ switches, the worst switch therefore satisfies
 
@@ -130,7 +127,7 @@ How much shortest-path diversity does a fat-tree keep when switch-to-switch link
 | Parameter | Value |
 |---|---|
 | Switch size k | 8, 16, 32, 48 (128 to 27,648 hosts; k = 48 is the example of [1, §2.2]) |
-| Link failure probability p | 0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3 (q = 0) |
+| Link failure probability p | 0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3 |
 | Trials | 30 independent failure samples per (k, p), seeds 0–29 |
 
 **Measured per trial**, separately for intra-pod and inter-pod pairs: the mean and the minimum (worst pair) over pairs of the surviving fraction, (surviving shortest paths) / (k/2 or (k/2)²). Per layer (edge, aggregation, core), also the worst switch's live-port fraction, (live switch-to-switch ports) / n (§4.5).
@@ -141,15 +138,15 @@ Each plotted point is the mean over the 30 trials, with a 95% confidence interva
 
 ![Experiment 1: mean surviving fraction](results/Exp_1/exp1_mean.png)
 
-*Figure 2: Mean fraction of surviving shortest paths per edge-switch pair vs. link failure probability p. Dashed: the analytic expectations $(1-p)^2$ and $(1-p)^4$ of §4.4.*
+*Figure 2: Mean fraction of surviving shortest paths per edge-switch pair vs. link failure probability p.*
 
 ![Experiment 1: worst-pair fraction](results/Exp_1/exp1_worst.png)
 
-*Figure 3: The worst-off pair's fraction of surviving shortest paths vs. p. Dashed gray: the average pair (analytic), for reference.*
+*Figure 3: The worst-off pair's fraction of surviving shortest paths vs. p.*
 
 ![Experiment 1: worst switch's live ports](results/Exp_1/exp1_ports.png)
 
-*Figure 4: The worst switch's fraction of live switch-to-switch ports vs. p, per layer. Dashed: the analytic $\mathbb{E}[\min L]/n$ of §4.5, one curve per k. Dashed gray: the average switch, $1-p$, for reference.*
+*Figure 4: The worst switch's fraction of live switch-to-switch ports vs. p, per layer.*
 
 | p = 0.1 | k = 8 | k = 16 | k = 32 | k = 48 | analytic |
 |---|---|---|---|---|---|

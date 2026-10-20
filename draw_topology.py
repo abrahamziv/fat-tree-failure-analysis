@@ -43,18 +43,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--k", type=int, default=4)
     ap.add_argument("--fail-rate", type=float, default=0.0)
-    ap.add_argument("--fail-switches", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", help="default: Resources/topology_k{k}.png")
     a = ap.parse_args()
 
     G = build_fat_tree(a.k)
-    H = inject_failures(G, a.fail_rate, a.fail_switches, "switch-links",
-                        np.random.default_rng(a.seed))
+    H = inject_failures(G, a.fail_rate, "switch-links", np.random.default_rng(a.seed))
     pos = layout(G)
     alive = [e for e in G.edges if H.has_edge(*e)]
     dead = [e for e in G.edges if not H.has_edge(*e)]
-    dead_nodes = [n for n in G.nodes if n not in H]
 
     slots = a.k * (a.k ** 2 // 4 + 1)            # host positions incl. gaps between pods
     fig, ax = plt.subplots(figsize=(max(8, 0.6 * slots), 4.5))
@@ -64,15 +61,12 @@ def main():
         nodes = [n for n, d in G.nodes(data=True) if d["layer"] == layer]
         nx.draw_networkx_nodes(G, pos, nodelist=nodes, node_color=c,
                                node_size=60 if layer == "host" else 260, ax=ax, label=layer)
-    nx.draw_networkx_nodes(G, pos, nodelist=dead_nodes, node_color="white",
-                           edgecolors="red", node_size=260, ax=ax)
     if a.k <= 4:  # IP labels only when readable
         for n, ip in G.nodes(data="ip"):
             offset, ha, va = label_placement(G, pos, n)
             ax.annotate(ip, pos[n], xytext=offset, textcoords="offset points", ha=ha, va=va, fontsize=6)
     ax.set_title(f"k={a.k} fat-tree"
-                 + (f" (p={a.fail_rate}, q={a.fail_switches}, seed={a.seed}; failures in red)"
-                    if dead or dead_nodes else ""))
+                 + (f" (p={a.fail_rate}, seed={a.seed}; failures in red)" if dead else ""))
     ax.legend(loc="upper left", fontsize=8, frameon=False, markerscale=0.5, labelspacing=1)
     ax.axis("off")
     fig.tight_layout()

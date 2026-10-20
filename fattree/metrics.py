@@ -7,7 +7,7 @@ only through aggregation switch a of each pod.
 surviving_paths: per pair class (intra-pod, inter-pod), the mean and the minimum number of
 surviving shortest paths over the pairs.
 live_ports: per switch layer, the mean and the minimum number of live switch-to-switch ports
-over the surviving switches; expected_worst_ports: the expected minimum (README §4.5).
+over the switches; expected_worst_ports: the expected minimum (README §4.5).
 """
 
 import networkx as nx
@@ -32,8 +32,6 @@ def _pairs(n: int, g: int, n_pairs, rng: np.random.Generator) -> tuple[np.ndarra
 def _liveness(H: nx.Graph) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """up[x, e, a]: edge-agg link alive. core[x, a, c]: agg-core link alive.
     shared[x, y, a]: cores in row a+1 reachable from aggregation switch a of both pods x and y.
-
-    A failed switch is absent from H, so its links read as dead.
     """
     k = H.graph["k"]
     half = k // 2
@@ -88,26 +86,20 @@ def port_layers(k: int) -> dict[str, tuple[int, int]]:
 
 
 def live_ports(H: nx.Graph) -> dict[str, float]:
-    """{layer}_ports_mean and {layer}_ports_min: live switch-to-switch ports over the surviving switches.
+    """{layer}_ports_mean and {layer}_ports_min: live switch-to-switch ports over the switches.
 
     Edge: uplinks (host ports never count). Agg: uplinks + downlinks. Core: downlinks.
     """
-    k = H.graph["k"]
-    half = k // 2
     up, core, _ = _liveness(H)
-    agg_alive = np.array([[H.has_node(f"a_{x}_{a}") for a in range(half)] for x in range(k)], dtype=bool)
-    core_alive = np.array([[H.has_node(f"c_{a + 1}_{c + 1}") for c in range(half)] for a in range(half)],
-                          dtype=bool)
     ports = {
-        "edge": up.sum(axis=2).ravel(),  # edge switches never fail
-        "agg": (up.sum(axis=1) + core.sum(axis=2))[agg_alive],
-        "core": core.sum(axis=0)[core_alive],
+        "edge": up.sum(axis=2),
+        "agg": up.sum(axis=1) + core.sum(axis=2),
+        "core": core.sum(axis=0),
     }
     out = {}
     for layer, v in ports.items():
-        if v.size:  # switch failures can empty a layer
-            out[f"{layer}_ports_mean"] = v.mean()
-            out[f"{layer}_ports_min"] = v.min()
+        out[f"{layer}_ports_mean"] = v.mean()
+        out[f"{layer}_ports_min"] = v.min()
     return out
 
 

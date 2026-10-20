@@ -15,12 +15,12 @@ from fattree.metrics import live_ports, surviving_paths
 from fattree.topology import build_fat_tree
 
 # Swept parameters, each given as a list of values. To add one: add its name here and its argument below.
-SWEEP = ["k", "fail_rate", "fail_switches"]
+SWEEP = ["k", "fail_rate"]
 
 
 def run_trial(G, cfg, rng) -> dict:
     """One failure sample and its metrics. To add a metric: merge its dict into the result."""
-    H = inject_failures(G, cfg.fail_rate, cfg.fail_switches, cfg.fail_scope, rng)
+    H = inject_failures(G, cfg.fail_rate, cfg.fail_scope, rng)
     return {**surviving_paths(H, cfg.fail_scope, cfg.pairs, rng), **live_ports(H)}
 
 
@@ -30,8 +30,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--k", type=int, nargs="+", help="ports per switch (even, 4..254)")
     p.add_argument("--fail-rate", type=float, nargs="+", default=[0.0],
                    help="link failure probability p (each link fails independently)")
-    p.add_argument("--fail-switches", type=float, nargs="+", default=[0.0],
-                   help="aggregation/core switch failure probability q")
     p.add_argument("--fail-scope", choices=["switch-links", "all-links"], default="switch-links")
     p.add_argument("--pairs", type=lambda s: s if s == "all" else int(s), default="all",
                    help="'all' or the number of uniformly sampled pairs")
